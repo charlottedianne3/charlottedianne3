@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pitch Stats</title>
+    <style>
+        .blue {
+            color: #0C2340;
+        }
+
+        .red {
+            color: #BD1F2D;
+        }
+
+        th {
+            border-bottom: 1px solid gray;
+            font-weight: bold;
+            font-size: 1.2em;
+            cursor: pointer;
+        }
+
+        th.sorted-asc::after {
+            content: ' ▲';
+        }
+
+        th.sorted-desc::after {
+            content: ' ▼';
+        }
+
+        a {
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .stats {
+            font-weight: bold;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+
+<h1 class="red">Trackman Pitch Stats Viewer</h1>
+<form onsubmit="filterData(event);">
+    <label>Starting date</label>
+    <input type="date" id="startdate">
+    <label>End date</label>
+    <input type="date" id="enddate">
+    <button>Filter</button>
+</form>
+<table id="data-table">
+    <tr>
+        <th onclick="sortTable(0)">ID</th>
+        <th onclick="sortTable(1)">Speed</th>
+        <th onclick="sortTable(2)">Result</th>
+        <th onclick="sortTable(3)">Datetime</th>
+    </tr>
+</table>
+
+<div id="stats" class="stats"></div>
+
+<script>
+    let currentSortColumn = -1;
+    let currentSortDirection = 'asc';
+    let speeds = []; // Array to store speed values for calculations
+
+    async function fetchData() {
+        const url = 'https://compute.samford.edu/zohauth/clients/datajson';
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            const table = document.getElementById('data-table');
+            speeds = []; // Reset speeds array
+
+            data.forEach(item => {
+                const row = table.insertRow();
+                const cellId = row.insertCell(0);
+                const cellSpeed = row.insertCell(1);
+                const cellResult = row.insertCell(2);
+                const cellDatetime = row.insertCell(3);
+
+                cellId.innerHTML = `<a href="details.html?id=${item.id}">Pitch ${item.id}</a>`;
+                cellSpeed.textContent = item.speed || '--';
+                cellResult.textContent = item.result || '--';
+                cellDatetime.textContent = item.datetime || '--';
+
+                if (item.speed) {
+                    speeds.push(item.speed);
+                }
+            });
+
+            calculateStats();
+        } catch (error) {
+            console.error('Error fetching data:', error);
+        }
+    }
+
+    function calculateStats() {
+        const mean = calculateMean(speeds);
+        const median = calculateMedian(speeds);
+        const mode = calculateMode(speeds);
+
+        const statsDiv = document.getElementById('stats');
+        statsDiv.innerHTML = `
+            <p>Mean Speed: ${mean.toFixed(2)}</p>
+            <p>Median Speed: ${median}</p>
+            <p>Mode Speed: ${mode.join(', ')}</p>
+        `;
+    }
+
+    function calculateMean(array) {
+        const total = array.reduce((acc, val) => acc + val, 0);
+        return total / array.length || 0;
+    }
+
+    function calculateMedian(array) {
+        if (array.length === 0) return 0;
+        array.sort((a, b) => a - b);
+        const mid = Math.floor(array.length / 2);
+        return array.length % 2 !== 0 ? array[mid] : (array[mid - 1] + array[mid]) / 2;
+    }
+
+    function calculateMode(array) {
+        const frequency = {};
+        let maxFreq = 0;
+        const modes = [];
+
+        array.forEach(value => {
+            frequency[value] = (frequency[value] || 0) + 1;
+            if (frequency[value] > maxFreq) {
+                maxFreq = frequency[value];
+            }
+        });
+
+        for (const key in frequency) {
+            if (frequency[key] === maxFreq) {
+                modes.push(Number(key));
+            }
+        }
+        return modes.length === array.length ? [] : modes;
+    }
+
+    function filterData(event) {
+        event.preventDefault();
+        const startdate = new Date(document.getElementById("startdate").value);
+        const enddate = new Date(document.getElementById("enddate").value);
+        const table = document.getElementById('data-table');
+        const rows = table.getElementsByTagName('tr');
+
+        for (let i = 1; i < rows.length; i++) {
+            const cells = rows[i].getElementsByTagName('td');
+            if (cells.length > 0) {
+                const datetimeText = cells[3].textContent;
+                const rowDate = new Date(datetimeText);
+
+                if (isNaN(rowDate)) {
+                    rows[i].style.display = 'none';
+                } else {
+                    rows[i].style.display = (rowDate >= startdate && rowDate <= enddate) ? '' : 'none';
+                }
+            }
+        }
+
+        calculateStats(); // Recalculate stats after filtering
+    }
+
+    function sortTable(columnIndex) {
+        const table = document.getElementById('data-table');
+        const rows = Array.from(table.rows).slice(1);
+        const isAscending = (currentSortColumn === columnIndex) ? (currentSortDirection === 'asc') : true;
+
+        rows.sort((a, b) => {
+            const aText = a.cells[columnIndex].textContent;
+            const bText = b.cells[columnIndex].textContent;
+
+            if (columnIndex === 1) { // Speed column
+                return isAscending ? aText - bText : bText - aText;
+            } else {
+                return isAscending ? aText.localeCompare(bText) : bText.localeCompare(aText);
+            }
+        });
+
+        while (table.rows.length > 1) {
+            table.deleteRow(1);
+        }
+
+        rows.forEach(row => table.appendChild(row));
+
+        currentSortColumn = columnIndex;
+        currentSortDirection = isAscending ? 'desc' : 'asc';
+
+        Array.from(table.rows[0].cells).forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
+        const headerCell = table.rows[0].cells[columnIndex];
+        headerCell.classList.toggle('sorted-asc', !isAscending);
+        headerCell.classList.toggle('sorted-desc', isAscending);
+    }
+
+    window.onload = fetchData;
+</script>
+
+</body>
+</html>
